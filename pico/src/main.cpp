@@ -21,7 +21,21 @@ LiquidCrystal_I2C lcd(0x27, 20, 4);
 
 // Nordic UART Service: the Node server discovers this notify characteristic
 // and receives the newline-delimited JSON sensor readings.
-BLEServiceUART bleUart;
+
+class ServerCallbacks : public BLEServerCallbacks {
+public:
+    void onConnect(BLEServer *server) override {
+        Serial.println("BLE central connected");
+    }
+
+    void onDisconnect(BLEServer *server) override {
+        Serial.println("BLE central disconnected");
+        BLE.startAdvertising();
+    }
+};
+
+BLEServiceUART bleUart(32, 20);
+ServerCallbacks serverCallbacks;
 
 unsigned long lastMeasurementAt = 0;
 bool lcdIsOn = true;
@@ -39,6 +53,11 @@ void updateLcdPower(float lux) {
 }
 
 void sendReading(float temperature, float moisture, float light) {
+    if (!bleUart) {
+        Serial.println("BLE central is not connected");
+        return;
+    }
+
     StaticJsonDocument<128> reading;
     reading["temperature"] = temperature;
     reading["moisture"] = moisture;
@@ -79,8 +98,13 @@ void setup() {
     lcd.setCursor(0, 0); lcd.print("Pico Monitoring");
 
     BLE.begin("SmartFarm-Pico");
-    BLE.server()->addService(&bleUart);
+
+    BLEServer *server = BLE.server();
+    server->setCallbacks(&serverCallbacks);
+    server->addService(&bleUart);
+
     BLE.startAdvertising();
+    Serial.println("BLE advertising started");
 }
 
 void loop() {
